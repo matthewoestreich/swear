@@ -1,11 +1,18 @@
 # Swear
 
-Promise-like behavior.
+Promise-like behavior in Rust.
 
-At a high level:
+---
+
+:warning: **This project was created for educational purposes only!!! *Do not use for anything critical!!!***
+
+---
+
+# Usage
+
+**TLDR**
 
 ```rust
-// You can also do something like
 Swear::new(|resolve, reject| {
   // Do something...
   if /* it was successful */ {
@@ -15,12 +22,12 @@ Swear::new(|resolve, reject| {
     reject(the_error);
   }
 })
-.then(|value| { /* ... */ })
-.catch(|error| { /* ... */ })
-.block();
+.then(|value| { /* success path */ })
+.catch(|error| { /* error path */ })
+.block(); // Optionally block main thread.
 ```
 
-Return a `Swear` from a `fn`
+**Return a `Swear` from a `fn`**
 
 ```rust
 // Say you have a fn that returns a Swear

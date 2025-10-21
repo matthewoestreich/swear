@@ -36,23 +36,6 @@ fn main() {
         })
         .catch(|err| {
             println!("ERROR : {err:?}");
-        });
-
-    std::thread::sleep(std::time::Duration::from_secs(1));
-
-    Swear::new(|resolve, reject| {
-        let now = std::time::SystemTime::now();
-        let ns = now
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        if ns % 2 == 0 {
-            resolve(ns);
-        } else {
-            reject("Some Error");
-        }
-    })
-    .then(|n| println!("I am an i32 {n}"))
-    .catch(|e| println!("I am SomeError {e:?}"))
-    .block();
+        })
+        .block();
 }

@@ -38,4 +38,16 @@ fn main() {
             println!("ERROR : {err:?}");
         })
         .block();
+
+    Swear::new(|resolve, reject| {
+        let mut rng = rand::rng();
+        if rng.random_bool(0.5) {
+            resolve(rng.random_range(0..100));
+        } else {
+            reject(MyError::New("Random failure".to_owned()));
+        }
+    })
+    .then(|data| println!("SUCCESS : {data}"))
+    .catch(|err| println!("ERROR : {err:?}"))
+    .block();
 }

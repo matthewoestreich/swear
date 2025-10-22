@@ -3,27 +3,38 @@ use std::{
     thread,
 };
 
-pub enum SwearState<T, E> {
+type ThenQueue<T> = Arc<Mutex<Vec<Resolve<T>>>>;
+type CatchQueue<E> = Arc<Mutex<Vec<Reject<E>>>>;
+
+pub enum SwearStatus<T, E> {
     Pending,
     Settled(T),
     Rejected(E),
 }
 
+pub trait ThreadSafeClone: Send + Clone + 'static {}
+impl<T: Send + Clone + 'static> ThreadSafeClone for T {}
+
 pub type Resolve<T> = Box<dyn FnOnce(T) + Send>;
 pub type Reject<E> = Box<dyn FnOnce(E) + Send>;
-pub type ThenQueue<T> = Arc<Mutex<Vec<Resolve<T>>>>;
-pub type CatchQueue<E> = Arc<Mutex<Vec<Resolve<E>>>>;
 
 #[derive(Clone)]
 pub struct Swear<T, E> {
-    status: Arc<Mutex<SwearState<T, E>>>,
+    status: Arc<Mutex<SwearStatus<T, E>>>,
     then_queue: ThenQueue<T>,
     catch_queue: CatchQueue<E>,
 }
 
-impl<T: Send + Clone + 'static, E: Send + Clone + 'static> Swear<T, E> {
-    pub fn new(callback: impl FnOnce(Resolve<T>, Reject<E>) + Send + 'static) -> Self {
-        let status = Arc::new(Mutex::new(SwearState::Pending));
+impl<T, E> Swear<T, E>
+where
+    T: ThreadSafeClone,
+    E: ThreadSafeClone,
+{
+    pub fn new<F>(callback: F) -> Self
+    where
+        F: FnOnce(Resolve<T>, Reject<E>) + Send + 'static,
+    {
+        let status = Arc::new(Mutex::new(SwearStatus::Pending));
         let then_queue: ThenQueue<T> = Arc::new(Mutex::new(Vec::new()));
         let catch_queue: CatchQueue<E> = Arc::new(Mutex::new(Vec::new()));
 
@@ -31,8 +42,8 @@ impl<T: Send + Clone + 'static, E: Send + Clone + 'static> Swear<T, E> {
         let then_queue_resolve = Arc::clone(&then_queue);
         let resolve: Resolve<T> = Box::new(move |val: T| {
             let mut st = status_resolve.lock().unwrap();
-            if matches!(*st, SwearState::Pending) {
-                *st = SwearState::Settled(val.clone());
+            if matches!(*st, SwearStatus::Pending) {
+                *st = SwearStatus::Settled(val.clone());
                 let mut queue = then_queue_resolve.lock().unwrap();
                 for cb in queue.drain(..) {
                     let val_clone = val.clone();
@@ -45,8 +56,8 @@ impl<T: Send + Clone + 'static, E: Send + Clone + 'static> Swear<T, E> {
         let catch_queue_reject = Arc::clone(&catch_queue);
         let reject: Reject<E> = Box::new(move |err: E| {
             let mut st = status_reject.lock().unwrap();
-            if matches!(*st, SwearState::Pending) {
-                *st = SwearState::Rejected(err.clone());
+            if matches!(*st, SwearStatus::Pending) {
+                *st = SwearStatus::Rejected(err.clone());
                 let mut queue = catch_queue_reject.lock().unwrap();
                 for cb in queue.drain(..) {
                     let err_clone = err.clone();
@@ -66,17 +77,21 @@ impl<T: Send + Clone + 'static, E: Send + Clone + 'static> Swear<T, E> {
         }
     }
 
-    pub fn then(&self, cb: impl FnOnce(T) + Send + 'static) -> Self {
+    pub fn then<F>(&self, cb: F) -> Self
+    where
+        F: FnOnce(T) + Send + 'static,
+    {
         match &*self.status.lock().unwrap() {
-            SwearState::Settled(val) => {
+            SwearStatus::Settled(val) => {
                 let val_clone = val.clone();
                 thread::spawn(move || cb(val_clone));
             }
-            SwearState::Pending => {
+            SwearStatus::Pending => {
                 self.then_queue.lock().unwrap().push(Box::new(cb));
             }
             _ => {}
         }
+
         Swear {
             status: Arc::clone(&self.status),
             then_queue: Arc::clone(&self.then_queue),
@@ -84,17 +99,21 @@ impl<T: Send + Clone + 'static, E: Send + Clone + 'static> Swear<T, E> {
         }
     }
 
-    pub fn catch(&self, cb: impl FnOnce(E) + Send + 'static) -> Self {
+    pub fn catch<F>(&self, cb: F) -> Self
+    where
+        F: FnOnce(E) + Send + 'static,
+    {
         match &*self.status.lock().unwrap() {
-            SwearState::Rejected(err) => {
+            SwearStatus::Rejected(err) => {
                 let err_clone = err.clone();
                 thread::spawn(move || cb(err_clone));
             }
-            SwearState::Pending => {
+            SwearStatus::Pending => {
                 self.catch_queue.lock().unwrap().push(Box::new(cb));
             }
             _ => {}
         }
+
         Swear {
             status: Arc::clone(&self.status),
             then_queue: Arc::clone(&self.then_queue),
